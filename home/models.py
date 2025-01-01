@@ -4,6 +4,7 @@ import string
 import random
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import json
 
@@ -72,3 +73,21 @@ class Order(models.Model):
         }
 
 
+@receiver(post_save, sender = Order)
+def order_status_handler(sender, instance, created, **kwargs):
+    if not created:
+        channel_layer = get_channel_layer()
+        data =  {
+            "order_id": instance.order_id,
+            "amount": instance.amount,
+            "status": instance.status,
+            "date": str(instance.created_at),
+            "progress_percentage": order_mapper[instance.status],
+        }
+
+        async_to_sync(channel_layer.group_send)(
+            f'order_{instance.order_id}',{
+                'type' : 'order_status',
+                'value' : json.dumps(data)
+            }
+        )
